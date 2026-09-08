@@ -44,9 +44,15 @@ io.use((socket, next) => {
 });
 
 io.on('connection', (socket) => {
-  const shell = os.platform() === 'win32' ? 'powershell.exe' : (process.env.SHELL || 'bash');
-
-  const ptyProcess = pty.spawn(shell, [], {
+  // Attach to (or create) a single persistent tmux session named "main".
+  // This means closing the browser tab / losing connection does NOT kill
+  // the shell — reopening the site re-attaches to the same running session,
+  // keeping cwd, exported env vars, running processes, etc.
+  // NOTE: this only survives browser disconnects. If the underlying Render
+  // container itself restarts (redeploy, free-tier sleep/wake), tmux and
+  // everything in it is gone too — that's a container-level reset, not fixable
+  // from inside the app on the free tier.
+  const ptyProcess = pty.spawn('tmux', ['new-session', '-A', '-s', 'main'], {
     name: 'xterm-256color',
     cols: 80,
     rows: 24,
@@ -59,7 +65,7 @@ io.on('connection', (socket) => {
   });
 
   ptyProcess.onExit(() => {
-    socket.emit('output', '\r\n[Sessia ayaqtaldy. Betti qaita ashyngyz.]\r\n');
+    socket.emit('output', '\r\n[tmux sessiasy ayaqtaldy. Betti qaita ashyngyz.]\r\n');
     socket.disconnect(true);
   });
 
@@ -72,7 +78,10 @@ io.on('connection', (socket) => {
   });
 
   socket.on('disconnect', () => {
-    try { ptyProcess.kill(); } catch (e) {}
+    // Detach from tmux instead of killing the shell, so the session keeps
+    // running in the background and is still there next time we connect.
+    try { ptyProcess.write('\u0002d'); } catch (e) {} // Ctrl+B then d = tmux detach
+    setTimeout(() => { try { ptyProcess.kill(); } catch (e) {} }, 300);
   });
 });
 
