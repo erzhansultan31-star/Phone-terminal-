@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>Remote Terminal</title>
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/xterm/5.3.0/css/xterm.min.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css">
 <style>
   html, body {
     margin: 0; padding: 0; height: 100%;
@@ -28,16 +28,28 @@
   }
   #err { color: #ff6b6b; margin-top: 10px; min-height: 20px; }
   #terminal-container {
-    display: none; height: 100vh; padding: 4px; box-sizing: border-box;
+    display: none; height: 100vh; box-sizing: border-box;
     flex-direction: column;
   }
-  #term { flex: 1; overflow: hidden; }
-  #toolbar {
-    display: flex; gap: 6px; padding: 6px; background: #2a2a2a; flex-wrap: wrap;
+  #term {
+    flex: 1; overflow: hidden; padding: 4px; box-sizing: border-box;
   }
-  #toolbar button {
-    flex: 1; min-width: 44px; padding: 10px; font-size: 14px; border-radius: 6px;
-    border: 1px solid #555; background: #3a3a3a; color: #fff;
+  .toolbar {
+    display: flex; gap: 4px; padding: 6px; background: #2a2a2a; flex-wrap: wrap;
+  }
+  .toolbar button {
+    flex: 1; min-width: 40px; padding: 10px 4px; font-size: 13px; border-radius: 6px;
+    border: 1px solid #555; background: #3a3a3a; color: #fff; white-space: nowrap;
+  }
+  .toolbar button:active { background: #4caf50; }
+  #quickbar {
+    display: flex; gap: 4px; padding: 0 6px 6px 6px; background: #2a2a2a;
+    overflow-x: auto; -webkit-overflow-scrolling: touch;
+  }
+  #quickbar button {
+    padding: 8px 14px; font-size: 13px; border-radius: 16px;
+    border: 1px solid #555; background: #333; color: #9cdcfe; white-space: nowrap;
+    flex-shrink: 0;
   }
 </style>
 </head>
@@ -50,22 +62,38 @@
   </div>
 
   <div id="terminal-container">
-    <div id="toolbar">
+    <div class="toolbar">
       <button onclick="sendKey('\u001b')">ESC</button>
       <button onclick="sendKey('\t')">TAB</button>
-      <button onclick="sendKey('\u0003')">CTRL+C</button>
-      <button onclick="sendKey('\u0004')">CTRL+D</button>
+      <button onclick="sendKey('\u0003')">C-C</button>
+      <button onclick="sendKey('\u0004')">C-D</button>
+      <button onclick="sendKey('\r')">ENTER</button>
+      <button onclick="sendKey('\u007f')">⌫</button>
+    </div>
+    <div class="toolbar">
       <button onclick="sendKey('\u001b[A')">↑</button>
       <button onclick="sendKey('\u001b[B')">↓</button>
+      <button onclick="sendKey('\u001b[D')">←</button>
+      <button onclick="sendKey('\u001b[C')">→</button>
+      <button onclick="sendKey('/')">/</button>
+      <button onclick="sendKey('-')">-</button>
+    </div>
+    <div id="quickbar">
+      <button onclick="sendLine('ls -la')">ls -la</button>
+      <button onclick="sendLine('pwd')">pwd</button>
+      <button onclick="sendLine('cd ~')">cd ~</button>
+      <button onclick="sendLine('clear')">clear</button>
+      <button onclick="sendLine('claude --version')">claude -v</button>
+      <button onclick="sendLine('htop')">htop</button>
     </div>
     <div id="term"></div>
   </div>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/xterm/5.3.0/xterm.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/xterm/5.3.0/addon-fit/xterm-addon-fit.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js"></script>
 <script src="/socket.io/socket.io.js"></script>
 <script>
-let socket, term;
+let socket, term, fitAddon;
 
 function login() {
   const pw = document.getElementById('password').value;
@@ -76,6 +104,12 @@ function login() {
 
 function sendKey(k) {
   if (socket && socket.connected) socket.emit('input', k);
+  if (term) term.focus();
+}
+
+function sendLine(cmd) {
+  if (socket && socket.connected) socket.emit('input', cmd + '\r');
+  if (term) term.focus();
 }
 
 function startTerminal(pw) {
@@ -97,11 +131,13 @@ function startTerminal(pw) {
         fontSize: 14,
         theme: { background: '#1e1e1e', foreground: '#e0e0e0' }
       });
-      const fitAddon = new FitAddon.FitAddon();
+      fitAddon = new FitAddon.FitAddon();
       term.loadAddon(fitAddon);
       term.open(document.getElementById('term'));
       fitAddon.fit();
-      window._fitAddon = fitAddon;
+      term.focus();
+
+      document.getElementById('term').addEventListener('click', () => term.focus());
 
       term.onData((data) => socket.emit('input', data));
 
@@ -113,9 +149,10 @@ function startTerminal(pw) {
 
     socket.on('output', (data) => term.write(data));
     setTimeout(() => {
-      window._fitAddon.fit();
+      fitAddon.fit();
       socket.emit('resize', { cols: term.cols, rows: term.rows });
-    }, 100);
+      term.focus();
+    }, 150);
   });
 }
 
