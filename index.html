@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="kk">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Remote Terminal</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/xterm/5.3.0/css/xterm.min.css">
+<style>
+  html, body {
+    margin: 0; padding: 0; height: 100%;
+    background: #1e1e1e;
+    font-family: -apple-system, Roboto, sans-serif;
+    overscroll-behavior: none;
+  }
+  #login {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    height: 100vh; color: #eee; text-align: center; padding: 20px; box-sizing: border-box;
+  }
+  #login h2 { margin-bottom: 20px; }
+  #login input {
+    padding: 14px; font-size: 16px; margin: 10px 0; width: 100%; max-width: 300px;
+    border-radius: 8px; border: 1px solid #444; background: #2a2a2a; color: #fff;
+    box-sizing: border-box;
+  }
+  #login button {
+    padding: 14px 30px; font-size: 16px; border-radius: 8px; border: none;
+    background: #4caf50; color: white; margin-top: 10px; width: 100%; max-width: 300px;
+  }
+  #err { color: #ff6b6b; margin-top: 10px; min-height: 20px; }
+  #terminal-container {
+    display: none; height: 100vh; padding: 4px; box-sizing: border-box;
+    flex-direction: column;
+  }
+  #term { flex: 1; overflow: hidden; }
+  #toolbar {
+    display: flex; gap: 6px; padding: 6px; background: #2a2a2a; flex-wrap: wrap;
+  }
+  #toolbar button {
+    flex: 1; min-width: 44px; padding: 10px; font-size: 14px; border-radius: 6px;
+    border: 1px solid #555; background: #3a3a3a; color: #fff;
+  }
+</style>
+</head>
+<body>
+  <div id="login">
+    <h2>🔒 Remote Terminal</h2>
+    <input type="password" id="password" placeholder="Құпия сөз" autocomplete="off">
+    <button onclick="login()">Кіру</button>
+    <div id="err"></div>
+  </div>
+
+  <div id="terminal-container">
+    <div id="toolbar">
+      <button onclick="sendKey('\u001b')">ESC</button>
+      <button onclick="sendKey('\t')">TAB</button>
+      <button onclick="sendKey('\u0003')">CTRL+C</button>
+      <button onclick="sendKey('\u0004')">CTRL+D</button>
+      <button onclick="sendKey('\u001b[A')">↑</button>
+      <button onclick="sendKey('\u001b[B')">↓</button>
+    </div>
+    <div id="term"></div>
+  </div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xterm/5.3.0/xterm.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xterm/5.3.0/addon-fit/xterm-addon-fit.min.js"></script>
+<script src="/socket.io/socket.io.js"></script>
+<script>
+let socket, term;
+
+function login() {
+  const pw = document.getElementById('password').value;
+  if (!pw) return;
+  sessionStorage.setItem('pw', pw);
+  startTerminal(pw);
+}
+
+function sendKey(k) {
+  if (socket && socket.connected) socket.emit('input', k);
+}
+
+function startTerminal(pw) {
+  socket = io({ auth: { password: pw } });
+
+  socket.on('connect_error', () => {
+    document.getElementById('err').innerText = 'Қате құпия сөз немесе байланыс жоқ';
+    sessionStorage.removeItem('pw');
+  });
+
+  socket.on('connect', () => {
+    document.getElementById('login').style.display = 'none';
+    const container = document.getElementById('terminal-container');
+    container.style.display = 'flex';
+
+    if (!term) {
+      term = new Terminal({
+        cursorBlink: true,
+        fontSize: 14,
+        theme: { background: '#1e1e1e', foreground: '#e0e0e0' }
+      });
+      const fitAddon = new FitAddon.FitAddon();
+      term.loadAddon(fitAddon);
+      term.open(document.getElementById('term'));
+      fitAddon.fit();
+      window._fitAddon = fitAddon;
+
+      term.onData((data) => socket.emit('input', data));
+
+      window.addEventListener('resize', () => {
+        fitAddon.fit();
+        socket.emit('resize', { cols: term.cols, rows: term.rows });
+      });
+    }
+
+    socket.on('output', (data) => term.write(data));
+    setTimeout(() => {
+      window._fitAddon.fit();
+      socket.emit('resize', { cols: term.cols, rows: term.rows });
+    }, 100);
+  });
+}
+
+const saved = sessionStorage.getItem('pw');
+if (saved) startTerminal(saved);
+</script>
+</body>
+</html>

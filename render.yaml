@@ -1,0 +1,9 @@
+services:
+  - type: web
+    name: phone-terminal
+    env: docker
+    plan: free
+    envVars:
+      - key: TERMINAL_PASSWORD
+        sync: false
+    autoDeploy: true
