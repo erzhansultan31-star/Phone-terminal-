@@ -16,6 +16,19 @@ if (!PASSWORD) {
 const app = express();
 app.use(express.static(path.join(__dirname, 'public')));
 
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+// Debug: list what actually exists on disk, visible in Render logs at startup
+console.log('__dirname:', __dirname);
+try {
+  console.log('Files in __dirname:', require('fs').readdirSync(__dirname));
+  console.log('Files in public/:', require('fs').readdirSync(path.join(__dirname, 'public')));
+} catch (e) {
+  console.log('COULD NOT READ public/ FOLDER:', e.message);
+}
+
 const server = http.createServer(app);
 const io = new Server(server, {
   maxHttpBufferSize: 1e7,
