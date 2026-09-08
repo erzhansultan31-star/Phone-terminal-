@@ -2,19 +2,22 @@
 <html lang="kk">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>Remote Terminal</title>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css">
 <style>
   html, body {
-    margin: 0; padding: 0; height: 100%;
+    position: fixed;
+    width: 100%; height: 100%;
+    margin: 0; padding: 0;
     background: #1e1e1e;
     font-family: -apple-system, Roboto, sans-serif;
+    overflow: hidden;
     overscroll-behavior: none;
   }
   #login {
     display: flex; flex-direction: column; align-items: center; justify-content: center;
-    height: 100vh; color: #eee; text-align: center; padding: 20px; box-sizing: border-box;
+    height: 100%; color: #eee; text-align: center; padding: 20px; box-sizing: border-box;
   }
   #login h2 { margin-bottom: 20px; }
   #login input {
@@ -28,29 +31,33 @@
   }
   #err { color: #ff6b6b; margin-top: 10px; min-height: 20px; }
   #terminal-container {
-    display: none; height: 100vh; box-sizing: border-box;
+    display: none;
+    position: fixed; top: 0; left: 0; right: 0; bottom: 0;
     flex-direction: column;
   }
   #term {
-    flex: 1; overflow: hidden; padding: 4px; box-sizing: border-box;
+    flex: 1; overflow: hidden; padding: 4px; box-sizing: border-box; min-height: 0;
   }
   .toolbar {
-    display: flex; gap: 4px; padding: 6px; background: #2a2a2a; flex-wrap: wrap;
+    display: flex; gap: 4px; padding: 6px; background: #2a2a2a; flex-wrap: nowrap;
+    flex-shrink: 0;
   }
   .toolbar button {
-    flex: 1; min-width: 40px; padding: 10px 4px; font-size: 13px; border-radius: 6px;
+    flex: 1; min-width: 0; padding: 10px 2px; font-size: 12px; border-radius: 6px;
     border: 1px solid #555; background: #3a3a3a; color: #fff; white-space: nowrap;
   }
   .toolbar button:active { background: #4caf50; }
   #quickbar {
     display: flex; gap: 4px; padding: 0 6px 6px 6px; background: #2a2a2a;
-    overflow-x: auto; -webkit-overflow-scrolling: touch;
+    overflow-x: auto; -webkit-overflow-scrolling: touch; flex-shrink: 0;
   }
   #quickbar button {
     padding: 8px 14px; font-size: 13px; border-radius: 16px;
     border: 1px solid #555; background: #333; color: #9cdcfe; white-space: nowrap;
     flex-shrink: 0;
   }
+  .pastebtn { color: #ffd54f !important; }
+  .copybtn { color: #81c784 !important; }
 </style>
 </head>
 <body>
@@ -63,20 +70,19 @@
 
   <div id="terminal-container">
     <div class="toolbar">
-      <button onclick="sendKey('\u001b')">ESC</button>
-      <button onclick="sendKey('\t')">TAB</button>
+      <button class="pastebtn" onclick="pasteClipboard()">📋 Қою</button>
+      <button class="copybtn" onclick="copySelection()">📄 Көшір</button>
       <button onclick="sendKey('\u0003')">C-C</button>
-      <button onclick="sendKey('\u0004')">C-D</button>
       <button onclick="sendKey('\r')">ENTER</button>
       <button onclick="sendKey('\u007f')">⌫</button>
     </div>
     <div class="toolbar">
+      <button onclick="sendKey('\u001b')">ESC</button>
+      <button onclick="sendKey('\t')">TAB</button>
       <button onclick="sendKey('\u001b[A')">↑</button>
       <button onclick="sendKey('\u001b[B')">↓</button>
       <button onclick="sendKey('\u001b[D')">←</button>
       <button onclick="sendKey('\u001b[C')">→</button>
-      <button onclick="sendKey('/')">/</button>
-      <button onclick="sendKey('-')">-</button>
     </div>
     <div id="quickbar">
       <button onclick="sendLine('ls -la')">ls -la</button>
@@ -84,7 +90,7 @@
       <button onclick="sendLine('cd ~')">cd ~</button>
       <button onclick="sendLine('clear')">clear</button>
       <button onclick="sendLine('claude --version')">claude -v</button>
-      <button onclick="sendLine('htop')">htop</button>
+      <button onclick="sendLine('claude')">claude</button>
     </div>
     <div id="term"></div>
   </div>
@@ -112,42 +118,64 @@ function sendLine(cmd) {
   if (term) term.focus();
 }
 
+async function pasteClipboard() {
+  try {
+    const text = await navigator.clipboard.readText();
+    if (text && socket && socket.connected) {
+      socket.emit('input', text);
+    }
+  } catch (e) {
+    alert('Қою мүмкін болмады. iOS-та: көшірген мәтінді ұзақ басып тұрып, терминал өрісіне тікелей "Paste" арқылы қоюға тырысыңыз.');
+  }
+  if (term) term.focus();
+}
+
+async function copySelection() {
+  if (!term) return;
+  const sel = term.getSelection();
+  if (!sel) {
+    alert('Алдымен терминалдағы мәтінді таңдаңыз (саусақпен басып тұрып сүйреу).');
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(sel);
+  } catch (e) {
+    alert('Көшіру мүмкін болмады.');
+  }
+}
+
 function startTerminal(pw) {
   socket = io({ auth: { password: pw } });
 
+  // Register these ONCE, not inside 'connect' — prevents duplicated output on reconnect
   socket.on('connect_error', () => {
     document.getElementById('err').innerText = 'Қате құпия сөз немесе байланыс жоқ';
     sessionStorage.removeItem('pw');
   });
 
+  if (!term) {
+    term = new Terminal({
+      cursorBlink: true,
+      fontSize: 14,
+      theme: { background: '#1e1e1e', foreground: '#e0e0e0' }
+    });
+    fitAddon = new FitAddon.FitAddon();
+    term.loadAddon(fitAddon);
+    term.open(document.getElementById('term'));
+    fitAddon.fit();
+
+    document.getElementById('term').addEventListener('click', () => term.focus());
+
+    term.onData((data) => {
+      if (socket && socket.connected) socket.emit('input', data);
+    });
+  }
+
+  socket.on('output', (data) => term.write(data));
+
   socket.on('connect', () => {
     document.getElementById('login').style.display = 'none';
-    const container = document.getElementById('terminal-container');
-    container.style.display = 'flex';
-
-    if (!term) {
-      term = new Terminal({
-        cursorBlink: true,
-        fontSize: 14,
-        theme: { background: '#1e1e1e', foreground: '#e0e0e0' }
-      });
-      fitAddon = new FitAddon.FitAddon();
-      term.loadAddon(fitAddon);
-      term.open(document.getElementById('term'));
-      fitAddon.fit();
-      term.focus();
-
-      document.getElementById('term').addEventListener('click', () => term.focus());
-
-      term.onData((data) => socket.emit('input', data));
-
-      window.addEventListener('resize', () => {
-        fitAddon.fit();
-        socket.emit('resize', { cols: term.cols, rows: term.rows });
-      });
-    }
-
-    socket.on('output', (data) => term.write(data));
+    document.getElementById('terminal-container').style.display = 'flex';
     setTimeout(() => {
       fitAddon.fit();
       socket.emit('resize', { cols: term.cols, rows: term.rows });
